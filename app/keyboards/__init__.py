@@ -1,0 +1,33 @@
+from .keyboards import (
+    CB_ADD_FAV,
+    CB_BACK_MAIN,
+    CB_DEL_FAV,
+    CB_FORECAST_LAT_LON,
+    CB_HOURLY_LAT_LON,
+    CB_SELECT_GEO,
+    CB_SET_DEFAULT,
+    CB_WEATHER_LAT_LON,
+    favourites_keyboard,
+    forecast_back_keyboard,
+    geo_results_keyboard,
+    main_menu_keyboard,
+    settings_keyboard,
+    weather_actions_keyboard,
+)
+
+__all__ = [
+    "CB_ADD_FAV",
+    "CB_BACK_MAIN",
+    "CB_DEL_FAV",
+    "CB_FORECAST_LAT_LON",
+    "CB_HOURLY_LAT_LON",
+    "CB_SELECT_GEO",
+    "CB_SET_DEFAULT",
+    "CB_WEATHER_LAT_LON",
+    "favourites_keyboard",
+    "forecast_back_keyboard",
+    "geo_results_keyboard",
+    "main_menu_keyboard",
+    "settings_keyboard",
+    "weather_actions_keyboard",
+]
