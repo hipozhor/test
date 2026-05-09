@@ -60,7 +60,6 @@ class WeatherService:
             await self._session.close()
         logger.info("WeatherService HTTP session closed ✓")
 
-    # ── Internal HTTP helper ──────────────────────────────────────────────
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
     async def _get(self, url: str, params: dict) -> dict:
@@ -70,7 +69,6 @@ class WeatherService:
             resp.raise_for_status()
             return await resp.json()
 
-    # ── Geocoding ─────────────────────────────────────────────────────────
 
     async def geocode(self, query: str, limit: int = 5) -> list[GeoLocation]:
         """Convert a city name string to geo coordinates."""
@@ -104,7 +102,6 @@ class WeatherService:
         await self._cache.set(cache_key, result)
         return result
 
-    # ── Weather ───────────────────────────────────────────────────────────
 
     async def get_current_weather(
         self, lat: float, lon: float, units: str = "metric", lang: str = "en"
@@ -140,5 +137,5 @@ class WeatherService:
         return result
 
 
-# Singleton
+
 weather_service = WeatherService()

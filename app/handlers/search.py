@@ -5,80 +5,53 @@ from aiogram.types import CallbackQuery, Message
 from app.database.repository import UserRepository
 from app.filters.states import SearchCityStates
 from app.handlers.weather import show_weather
-from app.keyboards import CB_BACK_MAIN, CB_SELECT_GEO, geo_results_keyboard, main_menu_keyboard
+from app.keyboards import CB_BACK_MAIN, CB_SELECT_GEO, geo_results_keyboard
 from app.services.weather import weather_service
 
-router = Router(name="search")
-
-_SESSION_KEY = "search_results"
-
+router = Router()
 
 @router.message(F.text == "🔍 Search City")
-async def search_start(message: Message, state: FSMContext) -> None:
+async def search_start(message: Message, state: FSMContext):
     await state.set_state(SearchCityStates.waiting_for_query)
-    await message.answer(
-        "🔍 <b>City Search</b>\n\nType a city name (e.g. <i>Amsterdam</i> or <i>New York, US</i>):",
-        parse_mode="HTML",
-    )
-
+    await message.answer("🔍 Введи название города (например, Москва или London):")
 
 @router.message(SearchCityStates.waiting_for_query, F.text)
-async def search_query(message: Message, state: FSMContext) -> None:
+async def search_query(message: Message, state: FSMContext):
     query = message.text.strip()
     if not query:
-        await message.answer("Please enter a city name.")
+        await message.answer("ну напиши что-нибудь")
         return
-
-    await message.answer("🔍 Searching…")
-
+    await message.answer("🔍 Ищу...")
     try:
         locations = await weather_service.geocode(query, limit=5)
-    except Exception as exc:
-        await message.answer(f"⚠️ Search error: {exc}")
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка: {e}")
         return
-
     if not locations:
-        await message.answer(
-            f"❌ No cities found for «{query}».\nTry a different spelling.",
-        )
+        await message.answer(f"❌ Ничего не нашёл для «{query}»")
         return
-
-    # Store results in FSM state
-    await state.update_data(
-        {_SESSION_KEY: [(loc.lat, loc.lon, loc.name, loc.country, loc.display_name) for loc in locations]}
-    )
+    await state.update_data(search_results=[(loc.lat, loc.lon, loc.name, loc.country, loc.display_name) for loc in locations])
     await state.set_state(SearchCityStates.choosing_location)
-
-    await message.answer(
-        f"🗺️ Found <b>{len(locations)}</b> result(s) for «{query}».\nChoose a city:",
-        reply_markup=geo_results_keyboard(locations),
-        parse_mode="HTML",
-    )
-
+    await message.answer(f"🗺️ Нашёл {len(locations)} вариант(ов):", reply_markup=geo_results_keyboard(locations))
 
 @router.callback_query(SearchCityStates.choosing_location, F.data.startswith(f"{CB_SELECT_GEO}:"))
-async def select_location(callback: CallbackQuery, state: FSMContext, user_repo: UserRepository) -> None:
+async def select_location(callback: CallbackQuery, state: FSMContext, user_repo: UserRepository):
     await callback.answer()
     idx = int(callback.data.split(":")[1])
-
     data = await state.get_data()
-    results = data.get(_SESSION_KEY, [])
-
+    results = data.get("search_results", [])
     if idx >= len(results):
-        await callback.message.edit_text("⚠️ Session expired. Please search again.")
+        await callback.message.edit_text("⚠️ Поиск устарел, попробуй снова")
         await state.clear()
         return
-
-    lat, lon, name, country, display_name = results[idx]
+    lat, lon, name, country, display = results[idx]
     city_label = f"{name}, {country}"
-
     await state.clear()
-    await callback.message.edit_text(f"📍 Selected: <b>{display_name}</b>", parse_mode="HTML")
+    await callback.message.edit_text(f"📍 Выбрано: {display}")
     await show_weather(callback.message, lat, lon, city_label)
 
-
 @router.callback_query(F.data == CB_BACK_MAIN)
-async def back_to_main(callback: CallbackQuery, state: FSMContext) -> None:
+async def back_to_main(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await callback.answer()
-    await callback.message.edit_text("✅ Cancelled.")
+    await callback.message.edit_text("❌ Отменено")

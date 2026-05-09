@@ -1,115 +1,99 @@
-from aiogram import F, Router
-from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+import asyncio
+import time
 
-from app.database.repository import UserRepository
-from app.keyboards import (
-    CB_FORECAST_LAT_LON,
-    CB_HOURLY_LAT_LON,
-    CB_WEATHER_LAT_LON,
-    forecast_back_keyboard,
-    main_menu_keyboard,
-    weather_actions_keyboard,
-)
-from app.services.weather import weather_service
-from app.utils.formatters import format_current, format_forecast_hourly, format_forecast_short
+import aiohttp
+from loguru import logger
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-router = Router(name="weather")
+from app.models.schemas import CurrentWeather, ForecastResponse, GeoLocation
+from config import settings
 
+class WeatherCache:
+    def __init__(self, ttl: int):
+        self._ttl = ttl
+        self._store: dict[str, tuple] = {}
+        self._lock = asyncio.Lock()
 
-async def show_weather(
-    target: Message | CallbackQuery,
-    lat: float,
-    lon: float,
-    city_name: str,
-    edit: bool = False,
-) -> None:
-    """Shared helper that shows current weather."""
-    try:
-        weather = await weather_service.get_current_weather(lat, lon)
-    except Exception as exc:
-        err = f"⚠️ Couldn't fetch weather: {exc}"
-        if edit and isinstance(target, CallbackQuery) and target.message:
-            await target.message.edit_text(err)
-        elif isinstance(target, Message):
-            await target.answer(err)
-        return
+    async def get(self, key: str):
+        async with self._lock:
+            item = self._store.get(key)
+            if not item:
+                return None
+            value, ts = item
+            if time.monotonic() - ts > self._ttl:
+                del self._store[key]
+                return None
+            return value
 
-    text = format_current(weather, city_name)
-    keyboard = weather_actions_keyboard(lat, lon, city_name)
+    async def set(self, key: str, value):
+        async with self._lock:
+            self._store[key] = (value, time.monotonic())
 
-    if edit and isinstance(target, CallbackQuery) and target.message:
-        await target.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    elif isinstance(target, Message):
-        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
-    elif isinstance(target, CallbackQuery) and target.message:
-        await target.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+class WeatherService:
+    def __init__(self):
+        self._api_key = settings.owm_api_key.get_secret_value()
+        self._base_url = settings.owm_base_url
+        self._geo_url = settings.owm_geo_url
+        self._cache = WeatherCache(ttl=settings.weather_cache_ttl)
+        self._session = None
 
+    async def start(self):
+        self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10))
+        logger.info("http сессия открыта")
 
-# ── "My City" button ──────────────────────────────────────────────────────────
+    async def stop(self):
+        if self._session:
+            await self._session.close()
+        logger.info("http сессия закрыта")
 
-@router.message(F.text == "🏠 My City")
-async def my_city(message: Message, user_repo: UserRepository) -> None:
-    user = await user_repo.get_by_telegram_id(message.from_user.id)
-    if not user or not user.default_city:
-        await message.answer(
-            "🏠 You haven't set a home city yet.\n"
-            "Send your 📍 <b>Location</b> or use <b>🔍 Search City</b> to set one.",
-            parse_mode="HTML",
-        )
-        return
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=4))
+    async def _get(self, url: str, params: dict):
+        assert self._session
+        params["appid"] = self._api_key
+        async with self._session.get(url, params=params) as resp:
+            resp.raise_for_status()
+            return await resp.json()
 
-    await show_weather(message, user.default_lat, user.default_lon, user.default_city)
+    async def geocode(self, query: str, limit: int = 5):
+        key = f"geo:{query.lower()}:{limit}"
+        cached = await self._cache.get(key)
+        if cached:
+            return cached
+        data = await self._get(f"{self._geo_url}/direct", {"q": query, "limit": limit})
+        results = [GeoLocation(**item) for item in data]
+        await self._cache.set(key, results)
+        return results
 
+    async def reverse_geocode(self, lat: float, lon: float):
+        key = f"rgeo:{lat:.4f}:{lon:.4f}"
+        cached = await self._cache.get(key)
+        if cached:
+            return cached
+        data = await self._get(f"{self._geo_url}/reverse", {"lat": lat, "lon": lon, "limit": 1})
+        if not data:
+            return None
+        result = GeoLocation(**data[0])
+        await self._cache.set(key, result)
+        return result
 
-# ── Callback: show weather at coords ─────────────────────────────────────────
+    async def get_current_weather(self, lat: float, lon: float, units: str = "metric", lang: str = "en"):
+        key = f"current:{lat:.4f}:{lon:.4f}:{units}:{lang}"
+        cached = await self._cache.get(key)
+        if cached:
+            return cached
+        data = await self._get(f"{self._base_url}/weather", {"lat": lat, "lon": lon, "units": units, "lang": lang})
+        result = CurrentWeather(**data)
+        await self._cache.set(key, result)
+        return result
 
-@router.callback_query(F.data.startswith(f"{CB_WEATHER_LAT_LON}:"))
-async def cb_weather(callback: CallbackQuery) -> None:
-    await callback.answer()
-    _, lat_s, lon_s, name = callback.data.split(":", 3)
-    await show_weather(callback, float(lat_s), float(lon_s), name, edit=True)
+    async def get_forecast(self, lat: float, lon: float, cnt: int = 40, units: str = "metric", lang: str = "en"):
+        key = f"forecast:{lat:.4f}:{lon:.4f}:{units}:{lang}"
+        cached = await self._cache.get(key)
+        if cached:
+            return cached
+        data = await self._get(f"{self._base_url}/forecast", {"lat": lat, "lon": lon, "cnt": cnt, "units": units, "lang": lang})
+        result = ForecastResponse(**data)
+        await self._cache.set(key, result)
+        return result
 
-
-# ── Callback: 5-day forecast ──────────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith(f"{CB_FORECAST_LAT_LON}:"))
-async def cb_forecast(callback: CallbackQuery) -> None:
-    await callback.answer("Loading forecast…")
-    _, lat_s, lon_s, name = callback.data.split(":", 3)
-    lat, lon = float(lat_s), float(lon_s)
-
-    try:
-        forecast = await weather_service.get_forecast(lat, lon)
-    except Exception as exc:
-        await callback.message.edit_text(f"⚠️ Error: {exc}")
-        return
-
-    text = format_forecast_short(forecast)
-    await callback.message.edit_text(
-        text,
-        reply_markup=forecast_back_keyboard(lat, lon, name),
-        parse_mode="HTML",
-    )
-
-
-# ── Callback: hourly ──────────────────────────────────────────────────────────
-
-@router.callback_query(F.data.startswith(f"{CB_HOURLY_LAT_LON}:"))
-async def cb_hourly(callback: CallbackQuery) -> None:
-    await callback.answer("Loading hourly…")
-    _, lat_s, lon_s, name = callback.data.split(":", 3)
-    lat, lon = float(lat_s), float(lon_s)
-
-    try:
-        forecast = await weather_service.get_forecast(lat, lon)
-    except Exception as exc:
-        await callback.message.edit_text(f"⚠️ Error: {exc}")
-        return
-
-    text = format_forecast_hourly(forecast, hours=8)
-    await callback.message.edit_text(
-        text,
-        reply_markup=forecast_back_keyboard(lat, lon, name),
-        parse_mode="HTML",
-    )
+weather_service = WeatherService()

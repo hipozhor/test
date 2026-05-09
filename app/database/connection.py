@@ -22,16 +22,12 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False,
 )
 
-
-async def init_db() -> None:
-    """Create all tables on startup."""
+async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    logger.info("Database initialised ✓")
-
+    logger.info("база есть")
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency-style async session generator."""
     async with AsyncSessionLocal() as session:
         try:
             yield session

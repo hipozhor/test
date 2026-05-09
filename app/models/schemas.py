@@ -1,12 +1,10 @@
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 
 class WeatherCondition(BaseModel):
     id: int
     main: str
     description: str
     icon: str
-
 
 class MainWeather(BaseModel):
     temp: float
@@ -16,22 +14,18 @@ class MainWeather(BaseModel):
     pressure: int
     humidity: int
 
-
 class Wind(BaseModel):
     speed: float
     deg: int
     gust: float | None = None
 
-
 class Clouds(BaseModel):
     all: int
-
 
 class Sys(BaseModel):
     country: str | None = None
     sunrise: int | None = None
     sunset: int | None = None
-
 
 class CurrentWeather(BaseModel):
     name: str
@@ -44,7 +38,6 @@ class CurrentWeather(BaseModel):
     dt: int
     timezone: int
 
-
 class ForecastItem(BaseModel):
     dt: int
     main: MainWeather
@@ -54,7 +47,6 @@ class ForecastItem(BaseModel):
     visibility: int | None = None
     dt_txt: str
 
-
 class ForecastCity(BaseModel):
     name: str
     country: str
@@ -62,11 +54,9 @@ class ForecastCity(BaseModel):
     sunset: int
     timezone: int
 
-
 class ForecastResponse(BaseModel):
     list: list[ForecastItem]
     city: ForecastCity
-
 
 class GeoLocation(BaseModel):
     name: str
@@ -77,7 +67,7 @@ class GeoLocation(BaseModel):
     state: str | None = None
 
     @property
-    def display_name(self) -> str:
+    def display_name(self):
         parts = [self.name]
         if self.state:
             parts.append(self.state)

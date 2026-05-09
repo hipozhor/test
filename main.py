@@ -1,5 +1,6 @@
 import asyncio
 import sys
+import os
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -13,65 +14,46 @@ from app.middlewares import DbSessionMiddleware, ThrottlingMiddleware
 from app.services import weather_service
 from config import settings
 
+os.makedirs("logs", exist_ok=True)
 
-def configure_logging() -> None:
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        level=settings.log_level,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{line}</cyan> — <level>{message}</level>",
-        colorize=True,
-    )
-    logger.add(
-        "logs/bot.log",
-        rotation="10 MB",
-        retention="14 days",
-        level="DEBUG",
-        encoding="utf-8",
-    )
+logger.remove()
+logger.add(
+    sys.stderr,
+    level=settings.log_level,
+    format="<green>{time:HH:mm:ss}</green> | <level>{level}</level> | <message>",
+    colorize=True,
+)
+logger.add("logs/bot.log", rotation="10 MB", retention="14 days", level="DEBUG", encoding="utf-8")
 
-
-async def on_startup(bot: Bot) -> None:
+async def on_startup(bot: Bot):
     await init_db()
     await weather_service.start()
     me = await bot.get_me()
-    logger.info(f"Bot started: @{me.username} (id={me.id})")
+    logger.info(f"бот запущен: @{me.username}")
 
-
-async def on_shutdown(bot: Bot) -> None:
+async def on_shutdown(bot: Bot):
     await weather_service.stop()
-    logger.info("Bot shut down.")
+    logger.info("всё, закрылись")
 
-
-async def main() -> None:
-    import os
-    os.makedirs("logs", exist_ok=True)
-
-    configure_logging()
-
+async def main():
     bot = Bot(
         token=settings.bot_token.get_secret_value(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
-
     storage = MemoryStorage()
     dp = Dispatcher(storage=storage)
 
-    # ── Middlewares ───────────────────────────────────────────────────────────
     dp.message.middleware(ThrottlingMiddleware(rate=0.5))
     dp.message.middleware(DbSessionMiddleware())
     dp.callback_query.middleware(DbSessionMiddleware())
 
-    # ── Routers ───────────────────────────────────────────────────────────────
     dp.include_router(get_router())
 
-    # ── Lifecycle hooks ───────────────────────────────────────────────────────
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
 
-    logger.info("Starting polling…")
+    logger.info("стартую...")
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-
 
 if __name__ == "__main__":
     asyncio.run(main())

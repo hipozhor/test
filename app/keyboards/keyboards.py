@@ -1,139 +1,72 @@
-from aiogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
-    ReplyKeyboardRemove,
-)
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 
 from app.models.db import FavoriteCity
 from app.models.schemas import GeoLocation
 
-# ── Callback data prefixes ────────────────────────────────────────────────────
-CB_WEATHER_LAT_LON = "weather"      # weather:{lat}:{lon}:{name}
-CB_FORECAST_LAT_LON = "forecast"    # forecast:{lat}:{lon}:{name}
-CB_HOURLY_LAT_LON = "hourly"        # hourly:{lat}:{lon}:{name}
-CB_ADD_FAV = "add_fav"              # add_fav:{lat}:{lon}:{name}:{country}:{display}
-CB_DEL_FAV = "del_fav"              # del_fav:{fav_id}
-CB_SET_DEFAULT = "set_default"      # set_default:{lat}:{lon}:{name}
-CB_SELECT_GEO = "select_geo"        # select_geo:{idx} (index in session search results)
-CB_BACK_MAIN = "back_main"
+CB_WEATHER = "w"
+CB_FORECAST = "f"
+CB_HOURLY = "h"
+CB_ADD_FAV = "af"
+CB_DEL_FAV = "df"
+CB_SET_DEFAULT = "sd"
+CB_SELECT_GEO = "sg"
+CB_BACK_MAIN = "bm"
 
+def main_menu_keyboard():
+    kb = ReplyKeyboardBuilder()
+    kb.button(text="🏠 My City")
+    kb.button(text="⭐ Favourites")
+    kb.button(text="🔍 Search City")
+    kb.button(text="📍 Send Location", request_location=True)
+    kb.button(text="⚙️ Settings")
+    kb.adjust(2, 2, 1)
+    return kb.as_markup(resize_keyboard=True)
 
-def remove_keyboard() -> ReplyKeyboardRemove:
-    return ReplyKeyboardRemove()
-
-
-# ── Main menu keyboard ────────────────────────────────────────────────────────
-
-def main_menu_keyboard() -> ReplyKeyboardMarkup:
-    builder = ReplyKeyboardBuilder()
-    builder.row(
-        KeyboardButton(text="🏠 My City"),
-        KeyboardButton(text="⭐ Favourites"),
-    )
-    builder.row(
-        KeyboardButton(text="🔍 Search City"),
-        KeyboardButton(text="📍 Send Location", request_location=True),
-    )
-    builder.row(
-        KeyboardButton(text="⚙️ Settings"),
-    )
-    return builder.as_markup(resize_keyboard=True)
-
-
-# ── Weather action buttons ─────────────────────────────────────────────────────
-
-def weather_actions_keyboard(lat: float, lon: float, city_name: str) -> InlineKeyboardMarkup:
-    _name = city_name[:20]  # keep callback data short
+def weather_actions_keyboard(lat: float, lon: float, city_name: str):
+    name = city_name[:20]
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(
-            text="📅 5-Day Forecast",
-            callback_data=f"{CB_FORECAST_LAT_LON}:{lat:.4f}:{lon:.4f}:{_name}",
-        ),
-        InlineKeyboardButton(
-            text="⏰ Hourly",
-            callback_data=f"{CB_HOURLY_LAT_LON}:{lat:.4f}:{lon:.4f}:{_name}",
-        ),
+        InlineKeyboardButton(text="📅 5 дней", callback_data=f"{CB_FORECAST}:{lat:.4f}:{lon:.4f}:{name}"),
+        InlineKeyboardButton(text="⏰ Почасовой", callback_data=f"{CB_HOURLY}:{lat:.4f}:{lon:.4f}:{name}"),
     )
     builder.row(
-        InlineKeyboardButton(
-            text="⭐ Add to Favourites",
-            callback_data=f"{CB_ADD_FAV}:{lat:.4f}:{lon:.4f}:{_name}",
-        ),
-        InlineKeyboardButton(
-            text="🏠 Set as Home",
-            callback_data=f"{CB_SET_DEFAULT}:{lat:.4f}:{lon:.4f}:{_name}",
-        ),
+        InlineKeyboardButton(text="⭐ В избранное", callback_data=f"{CB_ADD_FAV}:{lat:.4f}:{lon:.4f}:{name}"),
+        InlineKeyboardButton(text="🏠 Домой", callback_data=f"{CB_SET_DEFAULT}:{lat:.4f}:{lon:.4f}:{name}"),
     )
     builder.row(
-        InlineKeyboardButton(text="🔄 Refresh", callback_data=f"{CB_WEATHER_LAT_LON}:{lat:.4f}:{lon:.4f}:{_name}")
+        InlineKeyboardButton(text="🔄 Обновить", callback_data=f"{CB_WEATHER}:{lat:.4f}:{lon:.4f}:{name}")
     )
     return builder.as_markup()
 
-
-def forecast_back_keyboard(lat: float, lon: float, city_name: str) -> InlineKeyboardMarkup:
-    _name = city_name[:20]
+def forecast_back_keyboard(lat: float, lon: float, city_name: str):
+    name = city_name[:20]
     builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(
-            text="◀️ Back to Current",
-            callback_data=f"{CB_WEATHER_LAT_LON}:{lat:.4f}:{lon:.4f}:{_name}",
-        )
-    )
+    builder.button(text="◀️ Назад", callback_data=f"{CB_WEATHER}:{lat:.4f}:{lon:.4f}:{name}")
     return builder.as_markup()
 
-
-# ── Geocoding search results ───────────────────────────────────────────────────
-
-def geo_results_keyboard(locations: list[GeoLocation]) -> InlineKeyboardMarkup:
+def geo_results_keyboard(locations: list[GeoLocation]):
     builder = InlineKeyboardBuilder()
     for i, loc in enumerate(locations):
-        builder.row(
-            InlineKeyboardButton(
-                text=f"📍 {loc.display_name}",
-                callback_data=f"{CB_SELECT_GEO}:{i}",
-            )
-        )
-    builder.row(
-        InlineKeyboardButton(text="❌ Cancel", callback_data=CB_BACK_MAIN)
-    )
+        builder.button(text=f"📍 {loc.display_name}", callback_data=f"{CB_SELECT_GEO}:{i}")
+    builder.button(text="❌ Отмена", callback_data=CB_BACK_MAIN)
+    builder.adjust(1)
     return builder.as_markup()
 
-
-# ── Favourites list ────────────────────────────────────────────────────────────
-
-def favourites_keyboard(favorites: list[FavoriteCity]) -> InlineKeyboardMarkup:
+def favourites_keyboard(favorites: list[FavoriteCity]):
     builder = InlineKeyboardBuilder()
     for fav in favorites:
         builder.row(
-            InlineKeyboardButton(
-                text=f"🌤️ {fav.display_name}",
-                callback_data=f"{CB_WEATHER_LAT_LON}:{fav.lat:.4f}:{fav.lon:.4f}:{fav.name[:20]}",
-            ),
-            InlineKeyboardButton(
-                text="🗑️",
-                callback_data=f"{CB_DEL_FAV}:{fav.id}",
-            ),
+            InlineKeyboardButton(text=f"🌤️ {fav.display_name}", callback_data=f"{CB_WEATHER}:{fav.lat:.4f}:{fav.lon:.4f}:{fav.name[:20]}"),
+            InlineKeyboardButton(text="🗑️", callback_data=f"{CB_DEL_FAV}:{fav.id}"),
         )
     if not favorites:
-        builder.row(
-            InlineKeyboardButton(text="🔍 Search a city to add", callback_data=CB_BACK_MAIN)
-        )
+        builder.button(text="🔍 Добавить город", callback_data=CB_BACK_MAIN)
     return builder.as_markup()
 
-
-# ── Settings keyboard ──────────────────────────────────────────────────────────
-
-def settings_keyboard(has_default: bool) -> InlineKeyboardMarkup:
+def settings_keyboard(has_default: bool):
     builder = InlineKeyboardBuilder()
     if has_default:
-        builder.row(
-            InlineKeyboardButton(text="🗑️ Clear Home City", callback_data="clear_default")
-        )
-    builder.row(
-        InlineKeyboardButton(text="◀️ Back", callback_data=CB_BACK_MAIN)
-    )
+        builder.button(text="🗑️ Сбросить", callback_data="clear_default")
+    builder.button(text="◀️ Назад", callback_data=CB_BACK_MAIN)
     return builder.as_markup()
